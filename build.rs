@@ -35,7 +35,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs_extra::copy_items(&source_paths, &out_dir, &copy_options)?;
 
     // Compile the C library.
-    let mut make = Command::new("make");
+    //
+    // CIPHERSTASH HACK: If we're running the build on an Apple Silicon host
+    // (aarch64-apple-darwin) and the target is x86_64-apple-darwin, we run make
+    // under Rosetta.  If we don't do this, `make` will be invoked and it will
+    // not use the correct macOS toolchain, and we'll end up with arm64
+    // binaries for pg_query.
+    //
+    // This hack has no effect on non-Apple targets, or builds being run from
+    // inside docker via `cross`.
+    //
+    let mut make = if env::var("HOST").unwrap() == "aarch64-apple-darwin" && env::var("TARGET").unwrap() == "x86_64-apple-darwin" {
+        let mut make = Command::new("arch");
+        make.arg("-arch").arg("x86_64").arg("make");
+        make
+    } else {
+        Command::new("make")
+    };
 
     make.env_remove("PROFILE").arg("-C").arg(&out_dir).arg("build");
 
